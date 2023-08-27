@@ -3,6 +3,7 @@
 import os 
 import sys
 import glob
+import re
 
 import gspread as gs
 import pandas as pd
@@ -27,6 +28,8 @@ def write_to_gsheet(service_file_path, spreadsheet_id, sheet_name, data_df):
     
 def read_file(filename):
     rows = []
+    actual_file=os.path.basename(filename)
+    character=actual_file.split("-")[0]
     with open(filename,'r') as fd:
         for line in fd.readlines():
             if line.startswith("Location"): continue
@@ -39,7 +42,8 @@ def read_file(filename):
             dict1.update({'location':location,'name':name,'count':count})
             rows.append(dict1)
     inv=pd.DataFrame(rows)
-
+    print(f"Uploading as sheet {character}")
+    write_to_gsheet("auth.json","1V9xPxRnjxOFYwkPuGqhOFuuA-L4wcugVy_6G-lYtqPw",character,inv)
     print(inv)
 
 def main(dir):
