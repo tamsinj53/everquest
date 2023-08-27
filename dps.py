@@ -170,7 +170,7 @@ class damager:
 
 
 
-def main(stdscr=None):
+def main(eqdir,stdscr=None):
     prices={}
     with open("prices.cfg",'r') as fd:
         for line in fd.readlines():
@@ -183,7 +183,7 @@ def main(stdscr=None):
         logfile_name = sys.argv[1]
         logfile_search = False
     else:
-        logfile_name = latest_file("/mnt/h/Games/Everquest/Logs")
+        logfile_name = latest_file(f"{eqdir}/Logs")
         logfile_search = True
     damager.count=0
     while True:
@@ -195,7 +195,7 @@ def main(stdscr=None):
         # iterate over the generator
         for line in loglines:
             if logfile_search:
-                latest_logfile = latest_file("/mnt/h/Games/Everquest/Logs")
+                latest_logfile = latest_file(f"{eqdir}/Logs")
                 if latest_logfile != logfile_name:
                     break
             line = line.strip()

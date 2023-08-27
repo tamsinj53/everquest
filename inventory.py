@@ -25,9 +25,9 @@ def read_file(filename):
 
     print(inv)
 
-def main():
-    for inv_file in glob.glob("/mnt/h/Games/Everquest/*-Inventory.txt"):
+def main(dir):
+    for inv_file in glob.glob(f"{dir}/*-Inventory.txt"):
         read_file(inv_file)
 
 if __name__ == "__main__":
-    main()
+    main(os.getenv("EQDIR","Everquest"))
