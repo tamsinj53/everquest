@@ -4,6 +4,10 @@ import sys
 import glob 
 from configparser import ConfigParser
 
+# Environment: EQDIR = path to everquest
+# Effect:
+# Writes the union of all friends into all characters
+
 # requires extra steps:
 # mainly.. remove lowercase version
 
