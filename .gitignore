@@ -3,3 +3,4 @@ Everquest
 backup
 *.ini
 *~
+__pycache__
