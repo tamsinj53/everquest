@@ -4,20 +4,24 @@ import os
 import sys
 import glob
 import re
+import sqlite3
+import pandas
 
 class character:
-    def init(self,eqdir,name):
-        self.filename=logfile
+    def __init__(self,eqdir,name):
         self.eqdir=eqdir
         self.name=name
-        self.location=get_location()
-        self.inventory=get_inventory()
+        self.location=self.get_location()
+        self.inventory=self.get_inventory()
+        
+    def get_logfile(self):
+        return f"{self.eqdir}/Logs/eqlog_{self.name}_P1999Green.txt"
+    def get_invfile(self):
+        return f"{self.eqdir}/{self.name}-Inventory.txt"
 
-    def get_inventory():
+    def get_inventory(self):
         rows = []
-        actual_file=os.path.basename(filename)
-        character=actual_file.split("-")[0]
-        with open(filename,'r') as fd:
+        with open(self.get_invfile(),'r') as fd:
             for line in fd.readlines():
                 if line.startswith("Location"): continue
                 if line.startswith("Bank") and not "-" in line:
@@ -28,19 +32,19 @@ class character:
                 (location,name,id,count,slots)=line.split("\t")
                 dict1.update({'location':location,'name':name,'count':count})
                 rows.append(dict1)
-        inv=pd.DataFrame(rows)
+        return pandas.DataFrame(rows)
 
-    def upload_to_google(sheet_id):
+    def upload_to_google(self,sheet_id):
         if self.inventory is None:
             raise("No inventory found")
         write_to_gsheet("auth.json",sheet_id,character,self.inventory)
 
-    def get_location():
-        file_size=os.stat(self.filename).st_size
-        with open(self.filename) as fd:
+    def get_location(self):
+        file_size=os.stat(self.get_logfile()).st_size
+        with open(self.get_logfile()) as fd:
             lines=[]
             iter=1
-            done=False
+            location=None
             buffer=8000
             while True:
                 fd.seek(file_size-buffer*iter)
@@ -48,9 +52,12 @@ class character:
 
                 for line in lines:
                     if "You have entered" in line:
-                        self.location=line.split("You have entered ")[-1]
-                        done=True
-                if done or f.tell() == 0: dontinue
+                        location=line.split("You have entered ")[-1]
+                        return location
+                if fd.tell() == 0: continue
+                iter+=1
+        return "Unknown"
+                
         
 
 def get_chars(eqdir):
@@ -61,21 +68,22 @@ def get_chars(eqdir):
     characters=[]
     inv_files = glob.glob(f"{eqdir}/*-Inventory.txt")
     for file in inv_files:
+        print(file)
         m=re.match("^.*/([^-]+)-Inventory.txt$",file)
         if m:
-            char=m.group(0)
+            char=m.group(1)
+            print(f"match {char}")
             if char not in characters:
                 characters+=[char]
     log_files = glob.glob(f"{eqdir}/Logs/eqlog_*P1999*")
     ini_files = glob.glob(f"{eqdir}/*P1999Green.ini")
+    return characters
 
 def parse_research(input):
     research={}
     for line in input.split("\n"):
         if not line: continue
-        print(f"x{line}y")
         fields=line.split("\t")
-        print(fields)
         
         (level,name,trivial,location)=fields[0:4]
         components=fields[4:]
@@ -192,6 +200,14 @@ enchanter_research="""
 
 
 if __name__=="__main__":
-    print(f"Characters:\n{get_chars(os.getenv('EQDIR'))}")
+    eqdir=os.getenv('EQDIR')
+    char_names=get_chars(eqdir)
+    print(f"Characters:\n{char_names}")
+    chars={}
+    for char in char_names:
+        chars[char]=character(eqdir,char)
 
-    print(parse_research(necro_research))
+
+    print(chars)
+    #    print(parse_research(necro_research))
+    #    print(parse_research(mage_research))
