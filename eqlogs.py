@@ -63,9 +63,24 @@ class logfile:
         print("LOADING SCHEMA")
         to_cur=self.db.cursor()
         to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS cash (timestamp TIMESTAMP UNIQUE, character VARCHAR, amount int);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item str);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, character VARCHAR, from str, comm_type strx);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS cash (timestamp TIMESTAMP UNIQUE, character VARCHAR, amount INT);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item VARCHAR);")
+        to_cur.execute("""
+        DO $$ BEGIN
+          IF to_regtype('comm_type') IS NULL THEN
+            CREATE TYPE comm_type AS ENUM ('tell', 'say', 'ooc', 'auction', 'shout', 'group');
+          END IF;
+        END $$;
+        """)
+        to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, character VARCHAR, source VARCHAR, type comm_type);")
+        to_cur.execute("""
+        DO $$ BEGIN
+          IF to_regtype('vendor_action') IS NULL THEN
+            CREATE TYPE vendor_action AS ENUM ('appraise', 'sell', 'buy');
+          END IF;
+        END $$;
+        """)
+        
         self.db.commit()
 
     def get_character_name(self,filename):
@@ -110,16 +125,27 @@ class logfile:
     def store_trade(self,cursor,timestamp,text):
         ""
 
+    def store_death(self,cursor,timestamp,text):
+        match=re.match("You have been slain by ([^!]+)!",text)
+        if match:
+            killer=match.group(1)
+            print(f"Killed by {killer}")
+            return
+        match=re.match("You have slain ([^!]+)!",text)
+
     def store_looted(self,cursor,timestamp,text):
         match=re.match("--You have looted (.+).--",text)
         if match:
             looted=match.group(1)
-            print(f"Looted {looted}")
+            #print(f"Looted {looted}")
+            cursor.execute(f"INSERT INTO loot SELECT '{timestamp}', '{self.character}', %s WHERE NOT EXISTS (SELECT timestamp from loot WHERE timestamp = '{timestamp}');",[looted])
             return
         match=re.match("You receive (.+) from the corpse.",text)
         if match:
             looted=Money(match.group(1))
-            print(f"Looted {looted}")
+            #print(f"Cash {looted}")
+            #print(timestamp,text)
+            cursor.execute(f"INSERT INTO cash SELECT '{timestamp}', '{self.character}', %s WHERE NOT EXISTS (SELECT timestamp from cash WHERE timestamp = '{timestamp}');",[int(looted)])
             return
 
     def ingest(self):
@@ -131,9 +157,9 @@ class logfile:
         # - Store vendors into vendor table
         # - Store player trades in trade table
         # - Record final timestamp in files table for future reference
+        # - Store deaths in death table
         
         # [Thu Jun 01 21:26:12 2023] Welcome to EverQuest!
-        # [Thu Jun 01 21:26:12 2023] If you need help, click on the EQ Menu button at the bottom of your screen and select the "Help" option.
         # [Thu Jun 01 21:26:12 2023] You have entered Erudin.
         # [Mon Mar 06 21:24:19 2023] You have been slain by an iksar marauder!
         # [Mon Mar 06 21:24:19 2023] You have lost experience.
@@ -144,6 +170,10 @@ class logfile:
         # [Sat Mar 11 13:06:29 2023] Klok Sass tells you, 'I'll give you 1 silver 4 copper per Short Beer'
         # [Sat Mar 11 13:06:32 2023] You receive 7 silver from Klok Sass for the Short Beer(s).
         # [Fri Sep 08 17:36:57 2023] You receive 670 platinum, 6 gold, 5 silver and 3 copper from the corpse.
+        # [Sat Sep 09 15:41:04 2023] Geleana has offered you a Eyepatch of the Shadows.
+        # [Fri Sep 08 21:18:46 2023] Minluilya -> Lilbr: thankyou.
+        # [Thu Aug 31 20:39:25 2023] You receive 30 platinum, 0 gold, 0 silver, 0 copper as your split.
+        # [Tue Aug 08 08:16:31 2023] You have slain an ice goblin!
 
         
         cursor=self.db.cursor()
@@ -156,6 +186,7 @@ class logfile:
                 if self.store_comms(cursor,datestamp,text): continue
                 if self.store_vendor(cursor,datestamp,text): continue
                 if self.store_trade(cursor,datestamp,text): continue
+                if self.store_death(cursor,datestamp,text): continue
         self.db.commit()
 
 class character:
@@ -370,6 +401,7 @@ if __name__=="__main__":
     char_log={}
     for char in char_names:
         char_log[char]=logfile(f"{eqdir}/Logs/eqlog_{char}_P1999Green.txt",db)
+        sys.exit(1)
     #print(chars)
     #    print(parse_research(necro_research))
     #    print(parse_research(mage_research))
