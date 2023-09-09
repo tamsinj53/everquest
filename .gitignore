@@ -4,3 +4,4 @@ backup
 *.ini
 *~
 __pycache__
+*.conf

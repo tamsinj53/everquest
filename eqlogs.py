@@ -4,8 +4,75 @@ import os
 import sys
 import glob
 import re
+import datetime
 import sqlite3
 import pandas
+import psycopg
+import toml
+
+def data_import(eqdir):
+    # import logs into structured data
+    ""
+
+class logfile:
+    def __init__(self,filename,db,character=None):
+        self.filename=filename
+        self.db=db
+        if character is not None:
+            self.character = self.get_character_name(filename)
+        else:
+            self.character = character
+        self._schema()
+        self.ingest()
+
+    def _schema(self):
+        print("LOADING SCHEMA")
+        to_cur=self.db.cursor()
+        to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
+        self.db.commit()
+    
+    def parse_logline(self,line):
+        match=re.match('^\[([^\]]+)\] (.*)',line)
+        if match:
+            timestamp=datetime.datetime.strptime(match.group(1),"%a %b %d %H:%M:%S %Y")
+            return (timestamp,match.group(2))
+        else:
+            return (None,None)
+
+    def sql_execute(self,cursor,query):
+        print(query)
+        cursor.execute(query)
+        
+    def store_zone(self,cursor,timestamp,text):
+        # Zoning table
+        match=re.match("^You have entered (.*)\.$",text)
+        if match:
+            zone=match.group(1)
+            print(f"Zoned into {zone}")
+            self.sql_execute(cursor,f"INSERT INTO zoning VALUES('{timestamp}', '{self.character}', '{zone}')")
+
+
+    def ingest(self):
+        # import specific logfile.
+        # - Extract charactername from filename if unspecified
+        # Read every logline and then:
+        # - Store communications in comms table
+        # - Store zone entries in zone table
+        # - Store vendors into vendor table
+        # - Store player trades in trade table
+        # - Record final timestamp in files table for future reference
+        
+        # [Thu Jun 01 21:26:12 2023] Welcome to EverQuest!
+        # [Thu Jun 01 21:26:12 2023] If you need help, click on the EQ Menu button at the bottom of your screen and select the "Help" option.
+        # [Thu Jun 01 21:26:12 2023] You have entered Erudin.
+
+        cursor=self.db.cursor()
+        with open(self.filename,'r') as fd:
+            for line in fd.readlines():
+                (datestamp,text)=self.parse_logline(line)
+                if not datestamp: continue
+                if self.store_zone(cursor,datestamp,text): continue
+        self.db.commit()
 
 class character:
     def __init__(self,eqdir,name):
@@ -204,10 +271,21 @@ if __name__=="__main__":
     char_names=get_chars(eqdir)
     print(f"Characters:\n{char_names}")
     chars={}
-    for char in char_names:
-        chars[char]=character(eqdir,char)
-
-
-    print(chars)
+    #for char in char_names:
+    #    chars[char]=character(eqdir,char)
+    #print(chars)
     #    print(parse_research(necro_research))
     #    print(parse_research(mage_research))
+
+    if os.path.isfile(f"db.conf"):
+        with open(f"db.conf",'r') as fd:
+            config=toml.load(fd)
+            print(config)
+    else:
+        print("database file missing")
+        sys.exit(1)
+
+    db=psycopg.connect(f"host={config['host']} dbname={config['database']} user={config['user']} password='{config['password']}' port={config['port']}")
+
+    albeddo=logfile("Everquest/Logs/eqlog_Albeddo_P1999Green.txt",db)
+        
