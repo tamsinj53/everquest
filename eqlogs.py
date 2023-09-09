@@ -15,6 +15,38 @@ def data_import(eqdir):
     # import logs into structured data
     ""
 
+class Money:
+    def __init__(self,amount):
+        self.coppers=self.parse_money(amount)
+
+    def __add__(self,money):
+        if money is str:
+            self.coppers+=self.parse_money(money)
+
+    def __int__(self):
+        return self.coppers
+
+    def __str__(self):
+        return f"{int(self.coppers / 1000)} platinum, {int((self.coppers % 1000)/100)} gold, {int((self.coppers % 100)/10)} silver and {self.coppers % 10} copper"
+    
+    def parse_money(self,amount):
+        # returns coppers
+        # 670 platinum, 6 gold, 5 silver and 3 copper
+        # 1 gold, 5 silver and 9 copper
+        if isinstance(amount,int):
+            return amount
+        plat=re.search("([0-9]+) platinum",amount)
+        gold=re.search("([0-9]+) gold",amount)
+        silver=re.search("([0-9]+) silver",amount)
+        copper=re.search("([0-9]+) copper",amount)
+
+        coppers=0
+        if plat: coppers+=1000*int(plat.group(1))
+        if gold: coppers+=100*int(gold.group(1))
+        if silver: coppers+=10*int(silver.group(1))
+        if copper: coppers+=int(copper.group(1))
+        return coppers
+
 class logfile:
     def __init__(self,filename,db,character=None):
         self.debug=True
@@ -31,6 +63,9 @@ class logfile:
         print("LOADING SCHEMA")
         to_cur=self.db.cursor()
         to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS cash (timestamp TIMESTAMP UNIQUE, character VARCHAR, amount int);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item str);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, character VARCHAR, from str, comm_type strx);")
         self.db.commit()
 
     def get_character_name(self,filename):
@@ -66,13 +101,33 @@ class logfile:
             zone=zone.replace("'","\\'")
             cursor.execute(f"INSERT INTO zoning SELECT '{timestamp}', '{self.character}', %s WHERE NOT EXISTS (SELECT timestamp from zoning WHERE timestamp = '{timestamp}');",[zone])
 
+    def store_comms(self,cursor,timestamnp,text):
+        ""
+
+    def store_vendor(self,cursor,timestamp,text):
+        ""
+
+    def store_trade(self,cursor,timestamp,text):
+        ""
+
+    def store_looted(self,cursor,timestamp,text):
+        match=re.match("--You have looted (.+).--",text)
+        if match:
+            looted=match.group(1)
+            print(f"Looted {looted}")
+            return
+        match=re.match("You receive (.+) from the corpse.",text)
+        if match:
+            looted=Money(match.group(1))
+            print(f"Looted {looted}")
+            return
 
     def ingest(self):
         # import specific logfile.
         # - Extract charactername from filename if unspecified
         # Read every logline and then:
-        # - Store communications in comms table
         # - Store zone entries in zone table
+        # - Store communications in comms table
         # - Store vendors into vendor table
         # - Store player trades in trade table
         # - Record final timestamp in files table for future reference
@@ -80,13 +135,27 @@ class logfile:
         # [Thu Jun 01 21:26:12 2023] Welcome to EverQuest!
         # [Thu Jun 01 21:26:12 2023] If you need help, click on the EQ Menu button at the bottom of your screen and select the "Help" option.
         # [Thu Jun 01 21:26:12 2023] You have entered Erudin.
+        # [Mon Mar 06 21:24:19 2023] You have been slain by an iksar marauder!
+        # [Mon Mar 06 21:24:19 2023] You have lost experience.
+        # [Sun Mar 05 13:10:53 2023] Klok Mugruk tells you, 'I'll give you 5 gold 1 silver 3 copper for the A Wolf Scale.'
+        # [Sun Mar 05 13:10:55 2023] You receive 5 gold 1 silver 3 copper from Klok Mugruk for the A Wolf Scale(s).
+        # [Mon Mar 06 21:35:33 2023] You receive 8 copper from the corpse.
+        # [Mon Mar 06 21:35:34 2023] --You have looted a Tarnished Sheer Blade.--
+        # [Sat Mar 11 13:06:29 2023] Klok Sass tells you, 'I'll give you 1 silver 4 copper per Short Beer'
+        # [Sat Mar 11 13:06:32 2023] You receive 7 silver from Klok Sass for the Short Beer(s).
+        # [Fri Sep 08 17:36:57 2023] You receive 670 platinum, 6 gold, 5 silver and 3 copper from the corpse.
 
+        
         cursor=self.db.cursor()
         with open(self.filename,'r') as fd:
             for line in fd.readlines():
                 (datestamp,text)=self.parse_logline(line)
                 if not datestamp: continue
                 if self.store_zone(cursor,datestamp,text): continue
+                if self.store_looted(cursor,datestamp,text): continue
+                if self.store_comms(cursor,datestamp,text): continue
+                if self.store_vendor(cursor,datestamp,text): continue
+                if self.store_trade(cursor,datestamp,text): continue
         self.db.commit()
 
 class character:
@@ -304,3 +373,5 @@ if __name__=="__main__":
     #print(chars)
     #    print(parse_research(necro_research))
     #    print(parse_research(mage_research))
+
+
