@@ -8,6 +8,7 @@ import datetime
 import sqlite3
 import pandas
 import psycopg
+from psycopg2.extensions import adapt
 import toml
 
 def data_import(eqdir):
@@ -16,9 +17,10 @@ def data_import(eqdir):
 
 class logfile:
     def __init__(self,filename,db,character=None):
+        self.debug=True
         self.filename=filename
         self.db=db
-        if character is not None:
+        if character is None:
             self.character = self.get_character_name(filename)
         else:
             self.character = character
@@ -30,6 +32,22 @@ class logfile:
         to_cur=self.db.cursor()
         to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
         self.db.commit()
+
+    def get_character_name(self,filename):
+        filename=os.path.basename(filename)
+        m=re.match("^([^-]+)-Inventory.txt$",filename)
+        if m:
+            character_name=m.group(1)
+            if self.debug: print(f"match {filename} to {character_name}")
+            return character_name
+        m=re.match("^eqlog_([^_]+)_P1999Green.txt",filename)
+        if m:
+            character_name=m.group(1)
+            if self.debug: print(f"match {filename} to {character_name}")
+            return character_name
+        raise("Failed to parse name")
+
+        
     
     def parse_logline(self,line):
         match=re.match('^\[([^\]]+)\] (.*)',line)
@@ -38,10 +56,6 @@ class logfile:
             return (timestamp,match.group(2))
         else:
             return (None,None)
-
-    def sql_execute(self,cursor,query):
-        print(query)
-        cursor.execute(query)
         
     def store_zone(self,cursor,timestamp,text):
         # Zoning table
@@ -49,7 +63,8 @@ class logfile:
         if match:
             zone=match.group(1)
             print(f"Zoned into {zone}")
-            self.sql_execute(cursor,f"INSERT INTO zoning VALUES('{timestamp}', '{self.character}', '{zone}')")
+            zone=zone.replace("'","\\'")
+            cursor.execute(f"INSERT INTO zoning SELECT '{timestamp}', '{self.character}', %s WHERE NOT EXISTS (SELECT timestamp from zoning WHERE timestamp = '{timestamp}');",[zone])
 
 
     def ingest(self):
@@ -267,15 +282,6 @@ enchanter_research="""
 
 
 if __name__=="__main__":
-    eqdir=os.getenv('EQDIR')
-    char_names=get_chars(eqdir)
-    print(f"Characters:\n{char_names}")
-    chars={}
-    #for char in char_names:
-    #    chars[char]=character(eqdir,char)
-    #print(chars)
-    #    print(parse_research(necro_research))
-    #    print(parse_research(mage_research))
 
     if os.path.isfile(f"db.conf"):
         with open(f"db.conf",'r') as fd:
@@ -289,3 +295,12 @@ if __name__=="__main__":
 
     albeddo=logfile("Everquest/Logs/eqlog_Albeddo_P1999Green.txt",db)
         
+    eqdir=os.getenv('EQDIR')
+    char_names=get_chars(eqdir)
+    print(f"Characters:\n{char_names}")
+    char_log={}
+    for char in char_names:
+        char_log[char]=logfile(f"{eqdir}/Logs/eqlog_{char}_P1999Green.txt",db)
+    #print(chars)
+    #    print(parse_research(necro_research))
+    #    print(parse_research(mage_research))
