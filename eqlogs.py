@@ -82,7 +82,8 @@ class logfile:
         to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, character VARCHAR, source VARCHAR, type comm_type);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS deaths (timestamp TIMESTAMP, character VARCHAR, killer VARCHAR, victim VARCHAR);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS files (filename VARCHAR UNIQUE, timestamp TIMESTAMP);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS prices (item VARCHAR UNIQUE, sell INT, buy INT);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS prices (character VARCHAR, item VARCHAR, vendor VARCHAR, sell INT, buy INT);")
+        to_cur.execute("CREATE UNIQUE INDEX ON prices (character,vendor,item) ;")
         
         self.db.commit()
 
@@ -115,7 +116,7 @@ class logfile:
         match=re.match("^You have entered (.*)\.$",text)
         if match:
             zone=match.group(1)
-            print(f"Zoned into {zone}")
+            #print(f"Zoned into {zone}")
             zone=zone.replace("'","\\'")
             cursor.execute(f"INSERT INTO zoning SELECT '{timestamp}', '{self.character}', %s WHERE NOT EXISTS (SELECT timestamp from zoning WHERE timestamp = '{timestamp}');",[zone])
 
@@ -144,17 +145,48 @@ class logfile:
         # Sell-to-vendor
         if not match:
             match=re.match("(.+) tells you, 'I'll (give) you (.+) (for the|per) (.+)\.'",text)
+        if not match:
+            match=re.match("(.+) tells you, 'I'll (give) you (.+) (for the|per) (.+)'",text)
         if match:
+            buy=0
+            sell=0
             vendor=match.group(1)
+            price=Money(match.group(3))
             if match.group(2) == 'be':
                 method="sell"
+                sell=int(price)
             elif match.group(2) == 'give':
                 method="buy"
-            price=Money(match.group(3))
+                buy=int(price)
             item=match.group(5)
-            print("++",vendor,"will",method,item,price)
-
+            
+            
+            cursor.execute("SELECT buy,sell FROM prices WHERE character=%s AND item=%s AND vendor=%s",[self.character,item,vendor])
+            #print("Fetching",item,vendor)
+            records=cursor.fetchall()
+            #print(f"Got: {records}")
+            if len(records)==0:
+                print("++",vendor,"will",method,item,price)
+                cursor.execute("INSERT INTO prices SELECT %s, %s, %s, %s, %s;",[self.character,item,vendor,sell,buy])
+                return
+            (stored_buy,stored_sell)=records[0]
+            update=False
+            if buy == 0 and stored_buy != 0:
+                buy=stored_buy
+                update=True
+            if sell == 0 and stored_sell != 0:
+                sell=stored_sell
+                update=True
+            if update:
+                print("Updating - different",[buy,sell,item,vendor,stored_buy,stored_sell])
+                cursor.execute("UPDATE prices SET buy=%s, sell=%s WHERE character=%s AND item=%s AND vendor=%s;",[buy,sell,self.character,item,vendor])
+                
         
+        ""
+
+    def store_faction(self,cursor,timestamp,text):
+        # [Sun Mar 26 14:51:02 2023] Your faction standing with KnightsofThunder got better.
+        # [Sun Mar 26 14:51:02 2023] Your faction standing with Bloodsabers got worse.
         ""
 
     def store_trade(self,cursor,timestamp,text):
@@ -441,7 +473,7 @@ if __name__=="__main__":
         sys.exit(1)
 
     db=psycopg.connect(f"host={config['host']} dbname={config['database']} user={config['user']} password='{config['password']}' port={config['port']}")
-        
+    
     eqdir=os.getenv('EQDIR')
     char_names=get_chars(eqdir)
     print(f"Characters:\n{char_names}")
