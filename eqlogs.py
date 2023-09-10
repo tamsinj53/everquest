@@ -81,6 +81,8 @@ class logfile:
         to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item VARCHAR);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, character VARCHAR, source VARCHAR, type comm_type);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS deaths (timestamp TIMESTAMP, character VARCHAR, killer VARCHAR, victim VARCHAR);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS files (filename VARCHAR UNIQUE, timestamp TIMESTAMP);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS prices (item VARCHAR UNIQUE, sell INT, buy INT);")
         
         self.db.commit()
 
@@ -118,15 +120,55 @@ class logfile:
             cursor.execute(f"INSERT INTO zoning SELECT '{timestamp}', '{self.character}', %s WHERE NOT EXISTS (SELECT timestamp from zoning WHERE timestamp = '{timestamp}');",[zone])
 
     def store_comms(self,cursor,timestamnp,text):
+        # [Fri Sep 08 21:18:46 2023] Minluilya -> Lilbr: thankyou.
+        # [Fri Sep 08 21:13:49 2023] Lilbr -> Minluilya: i do
+        # [Sat May 20 16:54:44 2023] Kygore tells the group, 'rdy?'
+        # [Sat May 20 17:11:26 2023] You tell your party, 'could i get a shoulderpad or two?'
+        # [Mon May 15 16:03:10 2023] You say, 'just fell off.. but otherwise fine'
+        # [Mon May 15 16:03:19 2023] Kaellia says, 'need a bind ?'
+        # [Sun Apr 23 22:31:06 2023] Peben tells you, 'np'
+        # [Sun Apr 23 22:31:14 2023] You told Peben, 'still awesome'
         ""
 
     def store_vendor(self,cursor,timestamp,text):
+        # [Sun Mar 05 13:10:53 2023] Klok Mugruk tells you, 'I'll give you 5 gold 1 silver 3 copper for the A Wolf Scale.'
+        # [Sat Mar 11 13:06:29 2023] Klok Sass tells you, 'I'll give you 1 silver 4 copper per Short Beer'
+        # [Sat Mar 11 13:06:32 2023] You receive 7 silver from Klok Sass for the Short Beer(s).
+        # [Sun Mar 05 13:10:55 2023] You receive 5 gold 1 silver 3 copper from Klok Mugruk for the A Wolf Scale(s).
+        # [Sun Mar 26 14:04:04 2023] Pai Berenis tells you, 'That'll be 18 platinum 9 gold 1 silver 1 copper for the Spell: Greater Shielding.'
+        # [Sun Mar 26 17:28:52 2023] Fhara Semhart tells you, 'That'll be 5 silver 2 copper per Boot Pattern.'
+        # [Sun Mar 26 17:30:22 2023] You give 1 gold 4 copper to Fhara Semhart.
+
+        # Buy-from-vendor
+        match=re.match("(.+) tells you, 'That'll (be) (.+) (for the|per) (.+)\.'",text)
+        # Sell-to-vendor
+        if not match:
+            match=re.match("(.+) tells you, 'I'll (give) you (.+) (for the|per) (.+)\.'",text)
+        if match:
+            vendor=match.group(1)
+            if match.group(2) == 'be':
+                method="sell"
+            elif match.group(2) == 'give':
+                method="buy"
+            price=Money(match.group(3))
+            item=match.group(5)
+            print("++",vendor,"will",method,item,price)
+
+        
         ""
 
     def store_trade(self,cursor,timestamp,text):
+        # [Sat Sep 09 15:41:04 2023] Geleana has offered you a Eyepatch of the Shadows.
+        # [Sun Mar 26 14:01:12 2023] Wharfrat adds some coins to the trade.
+        # [Sun Mar 26 14:01:12 2023] The total trade is: 50 PP, 0 GP, 0 SP, 0 CP
+        # [Fri Aug 18 15:25:04 2023] Cilulizi has cancelled the trade.
         ""
 
     def store_death(self,cursor,timestamp,text):
+        # [Mon Mar 06 21:24:19 2023] You have been slain by an iksar marauder!
+        # [Tue Aug 08 08:16:31 2023] You have slain an ice goblin!
+        # [Sat May 20 16:53:55 2023] orc centurion has been slain by Kygore!
+        # [Mon Mar 06 21:24:19 2023] You have lost experience.
         victim=None
         match=re.match("You have been slain by ([^!]+)!",text)
         if match:
@@ -137,20 +179,19 @@ class logfile:
         if match:
             victim=match.group(1)
             killer=self.character
-            print(f"Killed {victim}")
         match=re.match("(.+) has been slain by (.+)!",text)
         if match:
             victim=match.group(1)
             killer=match.group(2)
-            print(f"{killer} killed {victim}")
 
         if victim is not None:
             cursor.execute(f"INSERT INTO deaths SELECT '{timestamp}', '{self.character}', %s, %s WHERE NOT EXISTS (SELECT timestamp from deaths WHERE timestamp = '{timestamp}' AND killer = %s AND victim = %s);",[killer,victim,killer,victim])
         return
-            
-            
 
     def store_looted(self,cursor,timestamp,text):
+        # [Mon Mar 06 21:35:34 2023] --You have looted a Tarnished Sheer Blade.--
+        # [Mon Mar 06 21:35:33 2023] You receive 8 copper from the corpse.
+        # [Fri Sep 08 17:36:57 2023] You receive 670 platinum, 6 gold, 5 silver and 3 copper from the corpse.
         match=re.match("--You have looted (.+).--",text)
         if match:
             looted=match.group(1)
@@ -178,21 +219,12 @@ class logfile:
         
         # [Thu Jun 01 21:26:12 2023] Welcome to EverQuest!
         # [Thu Jun 01 21:26:12 2023] You have entered Erudin.
-        # [Mon Mar 06 21:24:19 2023] You have been slain by an iksar marauder!
-        # [Mon Mar 06 21:24:19 2023] You have lost experience.
-        # [Sun Mar 05 13:10:53 2023] Klok Mugruk tells you, 'I'll give you 5 gold 1 silver 3 copper for the A Wolf Scale.'
-        # [Sun Mar 05 13:10:55 2023] You receive 5 gold 1 silver 3 copper from Klok Mugruk for the A Wolf Scale(s).
-        # [Mon Mar 06 21:35:33 2023] You receive 8 copper from the corpse.
-        # [Mon Mar 06 21:35:34 2023] --You have looted a Tarnished Sheer Blade.--
-        # [Sat Mar 11 13:06:29 2023] Klok Sass tells you, 'I'll give you 1 silver 4 copper per Short Beer'
-        # [Sat Mar 11 13:06:32 2023] You receive 7 silver from Klok Sass for the Short Beer(s).
-        # [Fri Sep 08 17:36:57 2023] You receive 670 platinum, 6 gold, 5 silver and 3 copper from the corpse.
-        # [Sat Sep 09 15:41:04 2023] Geleana has offered you a Eyepatch of the Shadows.
-        # [Fri Sep 08 21:18:46 2023] Minluilya -> Lilbr: thankyou.
         # [Thu Aug 31 20:39:25 2023] You receive 30 platinum, 0 gold, 0 silver, 0 copper as your split.
-        # [Tue Aug 08 08:16:31 2023] You have slain an ice goblin!
-        # [Sat May 20 16:53:55 2023] orc centurion has been slain by Kygore!
-        
+        # [Sun Mar 26 17:30:35 2023] You have become better at Tailoring! (2)
+        # [Sun Mar 26 17:30:35 2023] You have fashioned the items together to create something new!
+        # [Sun Mar 26 17:30:50 2023] You lacked the skills to fashion the items together.
+        # [Thu Mar 30 19:25:02 2023] You can no longer advance your skill from making this item.
+
         cursor=self.db.cursor()
         with open(self.filename,'r') as fd:
             for line in fd.readlines():
