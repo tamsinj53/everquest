@@ -62,9 +62,6 @@ class logfile:
     def _schema(self):
         print("LOADING SCHEMA")
         to_cur=self.db.cursor()
-        to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS cash (timestamp TIMESTAMP UNIQUE, character VARCHAR, amount INT);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item VARCHAR);")
         to_cur.execute("""
         DO $$ BEGIN
           IF to_regtype('comm_type') IS NULL THEN
@@ -72,7 +69,6 @@ class logfile:
           END IF;
         END $$;
         """)
-        to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, character VARCHAR, source VARCHAR, type comm_type);")
         to_cur.execute("""
         DO $$ BEGIN
           IF to_regtype('vendor_action') IS NULL THEN
@@ -80,6 +76,11 @@ class logfile:
           END IF;
         END $$;
         """)
+        to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS cash (timestamp TIMESTAMP UNIQUE, character VARCHAR, amount INT);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item VARCHAR);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, character VARCHAR, source VARCHAR, type comm_type);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS deaths (timestamp TIMESTAMP, character VARCHAR, killer VARCHAR, victim VARCHAR);")
         
         self.db.commit()
 
@@ -126,12 +127,28 @@ class logfile:
         ""
 
     def store_death(self,cursor,timestamp,text):
+        victim=None
         match=re.match("You have been slain by ([^!]+)!",text)
         if match:
             killer=match.group(1)
+            victim=self.character
             print(f"Killed by {killer}")
-            return
         match=re.match("You have slain ([^!]+)!",text)
+        if match:
+            victim=match.group(1)
+            killer=self.character
+            print(f"Killed {victim}")
+        match=re.match("(.+) has been slain by (.+)!",text)
+        if match:
+            victim=match.group(1)
+            killer=match.group(2)
+            print(f"{killer} killed {victim}")
+
+        if victim is not None:
+            cursor.execute(f"INSERT INTO deaths SELECT '{timestamp}', '{self.character}', %s, %s WHERE NOT EXISTS (SELECT timestamp from deaths WHERE timestamp = '{timestamp}' AND killer = %s AND victim = %s);",[killer,victim,killer,victim])
+        return
+            
+            
 
     def store_looted(self,cursor,timestamp,text):
         match=re.match("--You have looted (.+).--",text)
@@ -174,7 +191,7 @@ class logfile:
         # [Fri Sep 08 21:18:46 2023] Minluilya -> Lilbr: thankyou.
         # [Thu Aug 31 20:39:25 2023] You receive 30 platinum, 0 gold, 0 silver, 0 copper as your split.
         # [Tue Aug 08 08:16:31 2023] You have slain an ice goblin!
-
+        # [Sat May 20 16:53:55 2023] orc centurion has been slain by Kygore!
         
         cursor=self.db.cursor()
         with open(self.filename,'r') as fd:
@@ -392,8 +409,6 @@ if __name__=="__main__":
         sys.exit(1)
 
     db=psycopg.connect(f"host={config['host']} dbname={config['database']} user={config['user']} password='{config['password']}' port={config['port']}")
-
-    albeddo=logfile("Everquest/Logs/eqlog_Albeddo_P1999Green.txt",db)
         
     eqdir=os.getenv('EQDIR')
     char_names=get_chars(eqdir)
@@ -401,9 +416,23 @@ if __name__=="__main__":
     char_log={}
     for char in char_names:
         char_log[char]=logfile(f"{eqdir}/Logs/eqlog_{char}_P1999Green.txt",db)
-        sys.exit(1)
     #print(chars)
     #    print(parse_research(necro_research))
     #    print(parse_research(mage_research))
 
-
+# SQL
+# Get character locations:
+# SELECT DISTINCT ON (character) * FROM zoning ORDER BY character,timestamp DESC;
+#      timestamp      | character |        zonename
+#---------------------+-----------+------------------------
+# 2023-08-26 12:05:36 | Albeddo   | East Commonlands
+# 2023-09-07 23:27:37 | Mindabel  | High Keep
+# 2023-09-09 16:56:42 | Mindalina | Karnor\'s Castle
+# 2023-08-28 17:34:15 | Mindanaya | Butcherblock Mountains
+# 2023-09-07 22:49:26 | Mindigail | Skyshrine
+# 2023-09-09 11:34:35 | Minluilya | The Overthere
+# 2023-09-10 11:21:14 | Minsani   | The Overthere
+# 2023-09-03 16:20:02 | Narberall | North Freeport
+# 2023-09-08 17:53:22 | Sebastine | The Feerrott
+# 2023-08-26 16:01:43 | Shahltear | East Commonlands
+#(10 rows)
