@@ -65,7 +65,7 @@ class logfile:
         to_cur.execute("""
         DO $$ BEGIN
           IF to_regtype('comm_type') IS NULL THEN
-            CREATE TYPE comm_type AS ENUM ('tell', 'say', 'ooc', 'auction', 'shout', 'group');
+            CREATE TYPE comm_type AS ENUM ('tell_out', 'tell_inc', 'say', 'ooc', 'auction', 'shout', 'group');
           END IF;
         END $$;
         """)
@@ -76,14 +76,23 @@ class logfile:
           END IF;
         END $$;
         """)
+        to_cur.execute("""
+        DO $$ BEGIN
+          IF to_regtype('faction_change') IS NULL THEN
+            CREATE TYPE faction_change AS ENUM ('increase', 'decrease');
+          END IF;
+        END $$;
+        """)
         to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS cash (timestamp TIMESTAMP UNIQUE, character VARCHAR, amount INT);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item VARCHAR);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, character VARCHAR, source VARCHAR, type comm_type);")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP, characer VARCHAR, src VARCHAR, dst VARCHAR, content VARCHAR);")
+        to_cur.execute("CREATE UNIQUE INDEX ON comms (timestamp, src, dst);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS deaths (timestamp TIMESTAMP, character VARCHAR, killer VARCHAR, victim VARCHAR);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS files (filename VARCHAR UNIQUE, timestamp TIMESTAMP);")
         to_cur.execute("CREATE TABLE IF NOT EXISTS prices (character VARCHAR, item VARCHAR, vendor VARCHAR, sell INT, buy INT);")
         to_cur.execute("CREATE UNIQUE INDEX ON prices (character,vendor,item) ;")
+        to_cur.execute("CREATE TABLE IF NOT EXISTS faction (character VARCHAR, faction VARCHAR, change faction_change);")
         
         self.db.commit()
 
@@ -120,16 +129,80 @@ class logfile:
             zone=zone.replace("'","\\'")
             cursor.execute(f"INSERT INTO zoning SELECT '{timestamp}', '{self.character}', %s WHERE NOT EXISTS (SELECT timestamp from zoning WHERE timestamp = '{timestamp}');",[zone])
 
-    def store_comms(self,cursor,timestamnp,text):
-        # [Fri Sep 08 21:18:46 2023] Minluilya -> Lilbr: thankyou.
-        # [Fri Sep 08 21:13:49 2023] Lilbr -> Minluilya: i do
+    def store_comms(self,cursor,timestamp,text):
+        src = None
+        # Guild
+        # [Sun Sep 10 21:40:36 2023] Entrave tells the guild, 'isee.'
+        # [Sun Sep 10 21:07:13 2023] You say to your guild, 'yes'
+        if src is None:
+            match = re.match("You say to your guild, '(.+)'",text)
+            if match:
+                src = self.character
+                dst = 'guild'
+                content = match.group(1)
+        if src is None:
+            match = re.match("([^ ]+) tells the guild, '(.+)'",text)
+            if match:
+                src = match.group(1)
+                dst = 'guild'
+                content = match.group(2)
+
+        # Group
         # [Sat May 20 16:54:44 2023] Kygore tells the group, 'rdy?'
         # [Sat May 20 17:11:26 2023] You tell your party, 'could i get a shoulderpad or two?'
-        # [Mon May 15 16:03:10 2023] You say, 'just fell off.. but otherwise fine'
+        if src is None:
+            match = re.match("You tell your party, '(.+)'",text)
+            if match:
+                src = self.character
+                dst = 'group'
+                content = match.group(1)
+
+        # Say
+        # [Sun Mar 26 14:49:59 2023] McNeal Jocub says 'Hi there Caeric, just browsing?  Have you seen the Rusty Morning Star I just got in?'
         # [Mon May 15 16:03:19 2023] Kaellia says, 'need a bind ?'
+        # [Sun Mar 26 14:50:02 2023] Caeric says, 'Hail'
+        # [Mon May 15 16:03:10 2023] You say, 'just fell off.. but otherwise fine'
+        # ("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP UNIQUE, src VARCHAR, dst VARCHAR, content VARCHAR);")
+        if src is None:
+            match = re.match("([^ ]+) says, '([^']+)",text)
+            if match:
+                src = match.group(1)
+                dst = 'say'
+                content = match.group(2)
+        if src is None:
+            match = re.match("You say, '(.+)'",text)
+            if match:
+                src = self.character
+                dst = 'say'
+                content = match.group(1)
+
+        # Tell
         # [Sun Apr 23 22:31:06 2023] Peben tells you, 'np'
         # [Sun Apr 23 22:31:14 2023] You told Peben, 'still awesome'
-        ""
+        # [Fri Sep 08 21:18:46 2023] Minluilya -> Lilbr: thankyou.
+        # [Fri Sep 08 21:13:49 2023] Lilbr -> Minluilya: i do
+        if src is None:
+            match = re.match("([^ ]+) tells you, '(.+)'",text)
+            if match:
+                src = match.group(1)
+                content = match.group(2)
+                dst = self.character
+        if src is None:
+            match = re.match("([^ ]+) -> ([^ ]+): (.*)",text)
+            if match:
+                src = match.group(1)
+                dst = match.group(2)
+                content = match.group(3)
+        if src is None:
+            match = re.match("You told ([^ ]+), '(.*)'",text)
+            if match:
+                src = self.character
+                dst = match.group(1)
+                content=match.group(2)
+        if src is not None:
+            print(src,dst,content)
+            cursor.execute(f"INSERT INTO comms SELECT '{timestamp}', '{self.character}', %s, %s, %s WHERE NOT EXISTS (SELECT timestamp from comms WHERE timestamp = '{timestamp}' AND src = %s AND dst = %s);",[src,dst,content,src,dst])
+        return
 
     def store_vendor(self,cursor,timestamp,text):
         # [Sun Mar 05 13:10:53 2023] Klok Mugruk tells you, 'I'll give you 5 gold 1 silver 3 copper for the A Wolf Scale.'
@@ -166,7 +239,7 @@ class logfile:
             records=cursor.fetchall()
             #print(f"Got: {records}")
             if len(records)==0:
-                print("++",vendor,"will",method,item,price)
+                #print("++",vendor,"will",method,item,price)
                 cursor.execute("INSERT INTO prices SELECT %s, %s, %s, %s, %s;",[self.character,item,vendor,sell,buy])
                 return
             (stored_buy,stored_sell)=records[0]
@@ -178,7 +251,7 @@ class logfile:
                 sell=stored_sell
                 update=True
             if update:
-                print("Updating - different",[buy,sell,item,vendor,stored_buy,stored_sell])
+                #print("Updating - different",[buy,sell,item,vendor,stored_buy,stored_sell])
                 cursor.execute("UPDATE prices SET buy=%s, sell=%s WHERE character=%s AND item=%s AND vendor=%s;",[buy,sell,self.character,item,vendor])
                 
         
