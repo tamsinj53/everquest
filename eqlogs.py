@@ -257,6 +257,14 @@ class logfile:
         
         ""
 
+    def store_exp(self,cursor,timestamp,text):
+        # [Fri Jul 21 18:29:48 2023] You gain party experience!!
+        # [Wed May 17 19:29:15 2023] You gain experience!!
+        # [Sat Jul 01 12:57:59 2023] You have lost experience.
+        # [Fri Aug 18 15:31:45 2023] You regain some experience from resurrection.
+        # [Mon Aug 14 20:51:05 2023] You have gained a level! Welcome to level 54!
+        ""
+
     def store_faction(self,cursor,timestamp,text):
         # [Sun Mar 26 14:51:02 2023] Your faction standing with KnightsofThunder got better.
         # [Sun Mar 26 14:51:02 2023] Your faction standing with Bloodsabers got worse.
@@ -341,6 +349,7 @@ class logfile:
                 if self.store_vendor(cursor,datestamp,text): continue
                 if self.store_trade(cursor,datestamp,text): continue
                 if self.store_death(cursor,datestamp,text): continue
+                if self.store_exp(cursor,datestamp,text): continue
         self.db.commit()
 
 class character:
@@ -412,6 +421,14 @@ def get_chars(eqdir):
             if char not in characters:
                 characters+=[char]
     log_files = glob.glob(f"{eqdir}/Logs/eqlog_*P1999*")
+    for file in log_files:
+        print(file)
+        m=re.match("eqlog_([^_]+)_P1999Green.txt",os.path.basename(file))
+        if m:
+            char=m.group(1)
+            print(f"match {char}")
+            if char not in characters:
+                characters+=[char]
     ini_files = glob.glob(f"{eqdir}/*P1999Green.ini")
     return characters
 
