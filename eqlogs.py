@@ -48,51 +48,115 @@ class Money:
         return coppers
 
 class logfile:
-    def __init__(self,filename,db,character=None):
+    def __init__(self,filename=None,db=None,character=None,drop=False):
         self.debug=True
         self.filename=filename
         self.db=db
+        self._schema(drop)
+        if drop:
+            return
         if character is None:
             self.character = self.get_character_name(filename)
         else:
             self.character = character
-        self._schema()
         self.ingest()
 
-    def _schema(self):
+    def create_type(self,to_cur,enum_name,enums,drop=False):
+        if drop:
+            to_cur.execute(f"drop type {enum_name}")
+            return
+        to_cur.execute(f"""
+        DO $$ BEGIN
+          IF to_regtype('{enum_name}') IS NULL THEN
+            CREATE TYPE {enum_name} AS ENUM ({enums});
+          END IF;
+        END $$;
+        """)
+
+    def create_table(self,to_cur,name,spec,drop,index=None):
+        if drop:
+            to_cur.execute(f"DROP TABLE {name};")
+            return
+        to_cur.execute(f"CREATE TABLE IF NOT EXISTS {name} ({spec});")
+        if index is not None:
+            to_cur.execute(f"CREATE UNIQUE INDEX ON {name} ({index}) ;")
+            
+
+    def create_tables(self,to_cur,drop=False):
+        ""
+        self.create_table(to_cur,"zoning","timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR",drop)
+        self.create_table(to_cur,"cash","timestamp TIMESTAMP UNIQUE, character VARCHAR, amount INT",drop)
+        self.create_table(to_cur,"loot","timestamp TIMESTAMP UNIQUE, character VARCHAR, item VARCHAR",drop)
+        self.create_table(to_cur,"comms","timestamp TIMESTAMP, characer VARCHAR, src VARCHAR, dst VARCHAR, content VARCHAR",drop,"timestamp, src, dst")
+        self.create_table(to_cur,"deaths","timestamp TIMESTAMP, character VARCHAR, killer VARCHAR, victim VARCHAR",drop)
+        self.create_table(to_cur,"files","filename VARCHAR UNIQUE, timestamp TIMESTAMP",drop)
+        self.create_table(to_cur,"prices","character VARCHAR, item VARCHAR, vendor VARCHAR, sell INT, buy INT",drop,"character,vendor,item")
+        self.create_table(to_cur,"mob_consider","character VARCHAR, name VARCHAR, consider type_consider",drop)
+        self.create_table(to_cur,"faction_standing","character VARCHAR, faction VARCHAR, consider VARCHAR",drop,"character,faction")
+        self.create_table(to_cur,"faction_member","faction VARCHAR, mob VARCHAR",drop,"mob,faction")
+        self.create_table(to_cur,"faction_change","character VARCHAR, faction VARCHAR, change type_faction_change",drop)
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS cash (timestamp TIMESTAMP UNIQUE, character VARCHAR, amount INT);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item VARCHAR);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP, characer VARCHAR, src VARCHAR, dst VARCHAR, content VARCHAR);")
+        #to_cur.execute("CREATE UNIQUE INDEX ON comms (timestamp, src, dst);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS deaths (timestamp TIMESTAMP, character VARCHAR, killer VARCHAR, victim VARCHAR);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS files (filename VARCHAR UNIQUE, timestamp TIMESTAMP);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS prices (character VARCHAR, item VARCHAR, vendor VARCHAR, sell INT, buy INT);")
+        #to_cur.execute("CREATE UNIQUE INDEX ON prices (character,vendor,item) ;")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS mob_consider (character VARCHAR, name VARCHAR, consider type_consider);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS mob (name VARCHAR, type VARCHAR);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS faction_standing (character VARCHAR, faction VARCHAR, consider VARCHAR);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS faction_member (faction VARCHAR, mob VARCHAR);")
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS faction_change (character VARCHAR, faction VARCHAR, change type_faction_change);")
+
+    def create_types(self,to_cur,drop=False):
+        ""
+        print(to_cur,drop)
+        self.create_type(to_cur,"type_comm","'tell_out', 'tell_inc', 'say', 'ooc', 'auction', 'shout', 'group'",drop)
+        #to_cur.execute("""
+        #DO $$ BEGIN
+        #  IF to_regtype('type_comm') IS NULL THEN
+        #    CREATE TYPE type_comm AS ENUM ('tell_out', 'tell_inc', 'say', 'ooc', 'auction', 'shout', 'group');
+        #  END IF;
+        #END $$;
+        #""")
+        self.create_type(to_cur,"type_vendor_action","'appraise', 'sell', 'buy'",drop)
+        #to_cur.execute("""
+        #DO $$ BEGIN
+        #  IF to_regtype('type_vendor_action') IS NULL THEN
+        #    CREATE TYPE type_vendor_action AS ENUM ('appraise', 'sell', 'buy');
+        #  END IF;
+        #END $$;
+        #""")
+        self.create_type(to_cur,"type_faction_change","'increase', 'decrease', 'max ally', 'max kos'",drop)
+        #to_cur.execute("""
+        #DO $$ BEGIN
+        #  IF to_regtype('type_faction_change') IS NULL THEN
+        #    CREATE TYPE type_faction_change AS ENUM ('increase', 'decrease', 'max ally', 'max kos');
+        #  END IF;
+        #END $$;
+        #""")
+        self.create_type(to_cur,"type_consider","'scowls', 'glares', 'glowers', 'apprehensively', 'indifferent', 'amiably', 'kindly', 'warmly', 'ally'",drop)
+        #to_cur.execute("""
+        #DO $$ BEGIN
+        #  IF to_regtype('type_consider') IS NULL THEN
+        #    CREATE TYPE type_consider AS ENUM ('scowls', 'glares', 'glowers', 'apprehensively', 'indifferent', 'amiably', 'kindly', 'warmly', 'ally');
+        #  END IF;
+        #END $$;
+        #""")
+
+    def _schema(self,drop=False):
         print("LOADING SCHEMA")
         to_cur=self.db.cursor()
-        to_cur.execute("""
-        DO $$ BEGIN
-          IF to_regtype('comm_type') IS NULL THEN
-            CREATE TYPE comm_type AS ENUM ('tell_out', 'tell_inc', 'say', 'ooc', 'auction', 'shout', 'group');
-          END IF;
-        END $$;
-        """)
-        to_cur.execute("""
-        DO $$ BEGIN
-          IF to_regtype('vendor_action') IS NULL THEN
-            CREATE TYPE vendor_action AS ENUM ('appraise', 'sell', 'buy');
-          END IF;
-        END $$;
-        """)
-        to_cur.execute("""
-        DO $$ BEGIN
-          IF to_regtype('faction_change') IS NULL THEN
-            CREATE TYPE faction_change AS ENUM ('increase', 'decrease');
-          END IF;
-        END $$;
-        """)
-        to_cur.execute("CREATE TABLE IF NOT EXISTS zoning (timestamp TIMESTAMP UNIQUE, character VARCHAR, zonename VARCHAR);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS cash (timestamp TIMESTAMP UNIQUE, character VARCHAR, amount INT);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS loot (timestamp TIMESTAMP UNIQUE, character VARCHAR, item VARCHAR);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS comms (timestamp TIMESTAMP, characer VARCHAR, src VARCHAR, dst VARCHAR, content VARCHAR);")
-        to_cur.execute("CREATE UNIQUE INDEX ON comms (timestamp, src, dst);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS deaths (timestamp TIMESTAMP, character VARCHAR, killer VARCHAR, victim VARCHAR);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS files (filename VARCHAR UNIQUE, timestamp TIMESTAMP);")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS prices (character VARCHAR, item VARCHAR, vendor VARCHAR, sell INT, buy INT);")
-        to_cur.execute("CREATE UNIQUE INDEX ON prices (character,vendor,item) ;")
-        to_cur.execute("CREATE TABLE IF NOT EXISTS faction (character VARCHAR, faction VARCHAR, change faction_change);")
+        if drop:
+            self.create_tables(to_cur,drop)
+            self.create_types(to_cur,drop)
+            self.create_types(to_cur)
+            self.create_tables(to_cur)
+        else:
+            self.create_types(to_cur)
+            self.create_tables(to_cur)
         
         self.db.commit()
 
@@ -200,7 +264,7 @@ class logfile:
                 dst = match.group(1)
                 content=match.group(2)
         if src is not None:
-            print(src,dst,content)
+            #print(src,dst,content)
             cursor.execute(f"INSERT INTO comms SELECT '{timestamp}', '{self.character}', %s, %s, %s WHERE NOT EXISTS (SELECT timestamp from comms WHERE timestamp = '{timestamp}' AND src = %s AND dst = %s);",[src,dst,content,src,dst])
         return
 
@@ -267,9 +331,51 @@ class logfile:
 
     def store_faction(self,cursor,timestamp,text):
         # [Sun Mar 26 14:51:02 2023] Your faction standing with KnightsofThunder got better.
-        # [Sun Mar 26 14:51:02 2023] Your faction standing with Bloodsabers got worse.
+        # [Sun Mar 26 z14:51:02 2023] Your faction standing with Bloodsabers got worse.
+        # ("CREATE TABLE IF NOT EXISTS faction_change (character VARCHAR, faction VARCHAR, change faction_change);
         ""
+        match=re.match("^Your faction standing with (.*) got (better)$",text)
+        if not match: match=re.match("^Your faction standing with (.*) got (worse)$",text)
+        if not match: match=re.match("^Your faction standing with (.*) could not (possibly get worse)$",text)
+        if not match: match=re.match("^Your faction standing with (.*) could not (possibly get better)$",text)
+        if match:
+            faction=match.group(1)
+            change=match.group(2)
+#            cursor.execute(f"INSERT INTO faction SELECT '{timestamp}', '{self.character}' %s WHERE NOT EXISTS (SELECT timestamp from faction WHERE timestamp = '{timestamp}');",[faction,change])
 
+        # [Mon May 29 14:06:54 2023] Guard Haldin looks upon you warmly -- what would you like your tombstone to say?
+        # Below -801, scowls at you, ready to attack
+        # -800 to -701, glares at you threateningly
+        # -700 to -501, glowers at you dubiously
+        # -500 to -101, is apprehensive
+        # -100 to 99, is indifferent
+        # 100 to 499, is amiable
+        # 500 to 699, kindly considers you
+        # 700 to 1099, looks upon you warmly
+        # 1100 and up, regards you as an ally
+        match = re.match("^(.+) looks upon you (warmly)",text)
+        if not match: match = re.match("^(.*) (scowls) at you",text)
+        if not match: match = re.match("^(.*) (glowers) at you dubiously",text)
+        if not match: match = re.match("^(.*) looks your way (apprehensively)",text)
+        if not match: match = re.match("^(.*) regards you (indifferent)ly",text)
+        if not match: match = re.match("^(.*) judges you (amiably)",text)
+        if not match: match = re.match("^(.*) (kindly) considers",text)
+        if not match: match = re.match("^(.*) regards you as an (ally)",text)
+        if match:
+            mob=match.group(1)
+            con=match.group(2)
+            cursor.execute("SELECT consider FROM mob_consider WHERE character=%s AND name=%s",[self.character,mob])
+            records=cursor.fetchall()
+            if len(records)==0:
+                cursor.execute("INSERT INTO mob_consider SELECT %s, %s, %s;",[self.character,mob,con])
+                print(f"Store {mob} is {con}")
+                return
+            cursor.execute("UPDATE mob_consider SET consider=%s WHERE character=%s and name=%s;",[con,self.character,mob])
+            print(f"Update {mob} is {con}")
+                
+        #to_cur.execute("CREATE TABLE IF NOT EXISTS mob_consider (character VARCHAR, name VARCHAR, consider type_consider);")
+
+            
     def store_trade(self,cursor,timestamp,text):
         # [Sat Sep 09 15:41:04 2023] Geleana has offered you a Eyepatch of the Shadows.
         # [Sun Mar 26 14:01:12 2023] Wharfrat adds some coins to the trade.
@@ -348,6 +454,7 @@ class logfile:
                 if self.store_comms(cursor,datestamp,text): continue
                 if self.store_vendor(cursor,datestamp,text): continue
                 if self.store_trade(cursor,datestamp,text): continue
+                if self.store_faction(cursor,datestamp,text): continue
                 if self.store_death(cursor,datestamp,text): continue
                 if self.store_exp(cursor,datestamp,text): continue
         self.db.commit()
@@ -413,24 +520,32 @@ def get_chars(eqdir):
     characters=[]
     inv_files = glob.glob(f"{eqdir}/*-Inventory.txt")
     for file in inv_files:
-        print(file)
         m=re.match("^.*/([^-]+)-Inventory.txt$",file)
         if m:
             char=m.group(1)
-            print(f"match {char}")
+            #print(f"match {char}")
             if char not in characters:
                 characters+=[char]
     log_files = glob.glob(f"{eqdir}/Logs/eqlog_*P1999*")
     for file in log_files:
-        print(file)
         m=re.match("eqlog_([^_]+)_P1999Green.txt",os.path.basename(file))
         if m:
             char=m.group(1)
-            print(f"match {char}")
+            #print(f"match {char}")
             if char not in characters:
                 characters+=[char]
     ini_files = glob.glob(f"{eqdir}/*P1999Green.ini")
     return characters
+
+def last_zone(char,db):
+    cursor=db.cursor()
+    cursor.execute(f"select * from (select timestamp, character, zoning, ROW_NUMBER() OVER (ORDER BY timestamp DESC) FROM zoning WHERE character='{char}') x WHERE row_number=1;")
+    records=cursor.fetchall()
+    if len(records)==1:
+        return(records[0])
+    
+    #SELECT consider FROM mob_consider WHERE character=%s AND name=%s",[self.character,mob])
+    
 
 def parse_research(input):
     research={}
@@ -551,9 +666,20 @@ enchanter_research="""
 49	Reoccurring Amnesia	182	No	Nilitim's Grimoire Pg. 449	Nilitim's Grimoire Pg. 450
 """
 
+def load_factions(db):
+    factions={
+        "Captain Rottgrime": "Venril Sathir",
+        "Wuoshi": "Claws of Veshan",
+        }
+    #self.create_table(to_cur,"faction_member","faction VARCHAR, mob VARCHAR",drop,"mob,faction")
+    cursor=db.cursor()
+    for mob in factions:
+        cursor.execute(f"INSERT INTO faction_member VALUES (%s,%s);",[mob,factions[mob]])
+    db.commit()
+        
 
 if __name__=="__main__":
-
+    
     if os.path.isfile(f"db.conf"):
         with open(f"db.conf",'r') as fd:
             config=toml.load(fd)
@@ -563,13 +689,18 @@ if __name__=="__main__":
         sys.exit(1)
 
     db=psycopg.connect(f"host={config['host']} dbname={config['database']} user={config['user']} password='{config['password']}' port={config['port']}")
-    
+    if "drop" in  sys.argv:
+        drop=logfile(db=db,drop=True)
+        print("DATABASE DROPPED")
+
+    load_factions(db)
+        
     eqdir=os.getenv('EQDIR')
     char_names=get_chars(eqdir)
     print(f"Characters:\n{char_names}")
     char_log={}
     for char in char_names:
-        char_log[char]=logfile(f"{eqdir}/Logs/eqlog_{char}_P1999Green.txt",db)
+        char_log[char]=logfile(filename=f"{eqdir}/Logs/eqlog_{char}_P1999Green.txt",db=db)
     #print(chars)
     #    print(parse_research(necro_research))
     #    print(parse_research(mage_research))
@@ -590,3 +721,4 @@ if __name__=="__main__":
 # 2023-09-08 17:53:22 | Sebastine | The Feerrott
 # 2023-08-26 16:01:43 | Shahltear | East Commonlands
 #(10 rows)
+

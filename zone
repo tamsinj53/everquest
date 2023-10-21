@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+import os
+import sys
+import toml
+import psycopg
+import eqlogs
+if __name__=="__main__":
+    
+    if os.path.isfile(f"db.conf"):
+        with open(f"db.conf",'r') as fd:
+            config=toml.load(fd)
+            print(config)
+    else:
+        print("database file missing")
+        sys.exit(1)
+
+    db=psycopg.connect(f"host={config['host']} dbname={config['database']} user={config['user']} password='{config['password']}' port={config['port']}")
+    
+    eqdir=os.getenv('EQDIR')
+
+    if len(sys.argv) != 1:
+        char_names=sys.argv[1:]
+    else:
+        char_names=eqlogs.get_chars(eqdir)
+    print(f"Characters:\n{char_names}")
+
+    for char in char_names:
+        record=eqlogs.last_zone(char,db)
+        print(record[2])
+        
